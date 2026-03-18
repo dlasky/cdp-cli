@@ -89,10 +89,7 @@ export async function createExecSession(
     // Daemon not running, fall through to direct connection
   }
 
-  // Fall back to direct WebSocket connection
-  const ws = await context.connect(page);
-
-  // Check if daemon has a session for this page - if so, skip DevTools check
+  // Check DevTools BEFORE connecting (our connection would show as attached)
   let daemonConnectedToPage = false;
   try {
     const sessions = await daemon.listSessions();
@@ -101,14 +98,19 @@ export async function createExecSession(
     // Daemon not running
   }
 
+  if (!daemonConnectedToPage) {
+    await context.assertNoDevTools(page.id);
+  }
+
+  // Now safe to connect
+  const ws = await context.connect(page);
+
   return {
     pageId: page.id,
     ws,
     useDaemon: false,
     exec: (method: string, params?: any) => context.sendCommand(ws, method, params),
-    assertNoDevTools: daemonConnectedToPage
-      ? async () => {}
-      : () => context.assertNoDevTools(page.id),
+    assertNoDevTools: async () => {}, // Already checked above
     assertNoDialog: () => context.assertNoDialog(ws),
     close: () => ws.close()
   };
@@ -153,10 +155,8 @@ export async function createExecSessionByPageRef(
 
   // Fall back to traditional path: findPage + direct WebSocket
   const page = await context.findPage(pageIdOrTitle);
-  const ws = await context.connect(page);
 
-  // Check if daemon has a session for this page - if so, skip DevTools check
-  // (daemon's connection shows as attached but doesn't block commands)
+  // Check DevTools BEFORE connecting (our connection would show as attached)
   let daemonConnectedToPage = false;
   try {
     const sessions = await daemon.listSessions();
@@ -165,14 +165,19 @@ export async function createExecSessionByPageRef(
     // Daemon not running
   }
 
+  if (!daemonConnectedToPage) {
+    await context.assertNoDevTools(page.id);
+  }
+
+  // Now safe to connect
+  const ws = await context.connect(page);
+
   return {
     pageId: page.id,
     ws,
     useDaemon: false,
     exec: (method: string, params?: any) => context.sendCommand(ws, method, params),
-    assertNoDevTools: daemonConnectedToPage
-      ? async () => {} // Daemon connected - skip check
-      : () => context.assertNoDevTools(page.id),
+    assertNoDevTools: async () => {}, // Already checked above
     assertNoDialog: () => context.assertNoDialog(ws),
     close: () => ws.close()
   };
