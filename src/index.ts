@@ -19,6 +19,7 @@ import * as pages from './commands/pages.js';
 import * as debug from './commands/debug.js';
 import * as network from './commands/network.js';
 import * as input from './commands/input.js';
+import * as launch from './commands/launch.js';
 import * as daemon from './commands/daemon.js';
 import * as logs from './commands/logs.js';
 import { outputError } from './output.js';
@@ -737,6 +738,40 @@ cli.command(
       steps: argv.steps as number,
       duration: argv.duration as number
     });
+  }
+);
+
+// Launch command
+cli.command(
+  'launch',
+  'Launch a browser with remote debugging (macOS only)',
+  (yargs) => {
+    return yargs
+      .option('port', {
+        type: 'number',
+        description: 'Remote debugging port',
+        alias: 'p',
+        default: 9222
+      })
+      .option('browser', {
+        type: 'string',
+        description: 'Browser to launch (chrome, helium)',
+        alias: 'b',
+        default: 'chrome',
+        choices: ['chrome', 'helium']
+      })
+      .option('stealth', {
+        type: 'boolean',
+        description: 'Enable stealth mode to reduce bot detection signals',
+        alias: 's',
+        default: false
+      });
+  },
+  async (argv) => {
+    const port = argv.port as number;
+    const browser = argv.browser as launch.BrowserType;
+    const stealth = argv.stealth as boolean;
+    await launch.launchBrowser({ port, browser, stealth });
   }
 );
 
