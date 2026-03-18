@@ -67,24 +67,19 @@ describe('Output Formatting', () => {
     it('should output error with message and code', () => {
       outputError('Something went wrong', 'ERROR_CODE', { detail: 'info' });
 
-      const logs = capture.getLogs();
-      expect(logs).toHaveLength(1);
+      const errors = capture.getErrors();
+      expect(errors).toHaveLength(1);
 
-      const error = JSON.parse(logs[0]);
-      expect(error.error).toBe(true);
-      expect(error.message).toBe('Something went wrong');
-      expect(error.code).toBe('ERROR_CODE');
-      expect(error.details).toEqual({ detail: 'info' });
+      expect(errors[0]).toContain('ERROR_CODE: Something went wrong');
+      expect(errors[0]).toContain('detail: info');
     });
 
     it('should work without extra data', () => {
       outputError('Failed', 'FAIL');
 
-      const logs = capture.getLogs();
-      const error = JSON.parse(logs[0]);
-      expect(error.error).toBe(true);
-      expect(error.message).toBe('Failed');
-      expect(error.code).toBe('FAIL');
+      const errors = capture.getErrors();
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBe('FAIL: Failed');
     });
   });
 

@@ -48,11 +48,10 @@ describe('Pages Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const logs = capture.getLogs();
-      expect(logs.length).toBeGreaterThan(0);
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
 
-      const error = JSON.parse(logs[0]);
-      expect(error.error).toBe(true);
+      expect(errors[0]).toContain('LIST_PAGES_FAILED:');
 
       capture.restore();
       exitMock.restore();
@@ -156,8 +155,9 @@ describe('Pages Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('NAVIGATE_FAILED:');
 
       capture.restore();
       exitMock.restore();
@@ -205,9 +205,10 @@ describe('Pages Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
-      expect(error.message).toContain('Multiple pages matched');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('CLOSE_PAGE_FAILED:');
+      expect(errors[0]).toContain('Multiple pages matched');
 
       capture.restore();
       exitMock.restore();
@@ -268,9 +269,9 @@ describe('Pages Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
-      expect(error.code).toBe('RESIZE_WINDOW_FAILED');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('RESIZE_WINDOW_FAILED:');
 
       capture.restore();
       exitMock.restore();

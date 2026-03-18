@@ -44,15 +44,18 @@ describe('Network Commands', () => {
       const logs = capture.getLogs();
       capture.restore();
 
-      expect(logs).toHaveLength(1);
-      const request = JSON.parse(logs[0]);
+      // Each network CDP event emits a separate output line
+      expect(logs).toHaveLength(3);
 
-      expect(request.url).toBe('https://api.example.com/data');
-      expect(request.method).toBe('GET');
-      expect(request.status).toBe(200);
-      expect(request.type).toBe('fetch');
-      expect(request.size).toBe(4567);
-      expect(request.timestamp).toBeDefined();
+      // The final loadingFinished event has all accumulated fields
+      const lastEvent = JSON.parse(logs[2]);
+      expect(lastEvent.event).toBe('loadingFinished');
+      expect(lastEvent.url).toBe('https://api.example.com/data');
+      expect(lastEvent.method).toBe('GET');
+      expect(lastEvent.status).toBe(200);
+      expect(lastEvent.type).toBe('fetch');
+      expect(lastEvent.size).toBe(4567);
+      expect(lastEvent.timestamp).toBeDefined();
     });
 
     it('should filter requests by type', async () => {
@@ -105,9 +108,12 @@ describe('Network Commands', () => {
       const logs = capture.getLogs();
       capture.restore();
 
-      expect(logs).toHaveLength(1);
-      const request = JSON.parse(logs[0]);
-      expect(request.type).toBe('fetch');
+      // Each CDP event for the fetch request emits a separate line
+      expect(logs).toHaveLength(2);
+      logs.forEach(log => {
+        const request = JSON.parse(log);
+        expect(request.type).toBe('fetch');
+      });
     });
 
     it('should respect duration parameter', async () => {
@@ -136,9 +142,9 @@ describe('Network Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
-      expect(error.code).toBe('LIST_NETWORK_FAILED');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('LIST_NETWORK_FAILED:');
 
       capture.restore();
       exitMock.restore();
