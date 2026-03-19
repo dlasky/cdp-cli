@@ -239,6 +239,12 @@ cli.command(
         description: 'Collection duration in seconds (0 to stream until interrupted)',
         alias: 'd',
         default: 0
+      })
+      .option('inspect', {
+        type: 'boolean',
+        description: 'Fully expand all objects and arrays in output',
+        alias: 'i',
+        default: false
       });
   },
   async (argv) => {
@@ -246,7 +252,8 @@ cli.command(
     await debug.listConsole(context, {
       type: argv.type as string | undefined,
       page: argv.page as string,
-      duration: argv.duration as number
+      duration: argv.duration as number,
+      inspect: argv.inspect as boolean
     });
   }
 );
@@ -494,6 +501,17 @@ cli.command(
         description: 'Use touch events instead of mouse events',
         default: false
       })
+      .option('user-gesture', {
+        type: 'boolean',
+        description: 'Use user gesture activation (required for WebXR, fullscreen, etc.)',
+        alias: 'g',
+        default: false
+      })
+      .option('wait', {
+        type: 'number',
+        description: 'Wait timeout in ms for selector to appear',
+        alias: 'w'
+      })
       .check((argv) => {
         const hasSelector = typeof argv.selector === 'string' && argv.selector.length > 0;
         const hasText = typeof argv.text === 'string' && argv.text.length > 0;
@@ -532,7 +550,9 @@ cli.command(
         page: argv.page as string,
         double: argv.double as boolean,
         longpress: argv.longpress as number | undefined,
-        touch: argv.touch as boolean
+        touch: argv.touch as boolean,
+        userGesture: argv['user-gesture'] as boolean,
+        wait: argv.wait as number | undefined
       }
     );
   }

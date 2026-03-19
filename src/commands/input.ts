@@ -599,7 +599,7 @@ async function resolveClickCandidates(
 export async function click(
   context: CDPContext,
   targetInput: ClickTargetInput | string,
-  optionsInput: { page: string; double?: boolean; longpress?: number; touch?: boolean }
+  optionsInput: { page: string; double?: boolean; longpress?: number; touch?: boolean; userGesture?: boolean; wait?: number }
 ): Promise<void> {
   let ws;
   const target: ClickTargetInput =
@@ -662,21 +662,49 @@ export async function click(
     await context.sendCommand(ws, 'DOM.enable');
     await context.sendCommand(ws, 'Runtime.enable');
 
-    const matches = await resolveClickCandidates(context, ws, target);
+    let matches: Awaited<ReturnType<typeof resolveClickCandidates>>;
+    const waitTimeout = options.wait;
 
-    if (matches.length === 0) {
-      throw new ClickError(
-        target.selector
-          ? `Element not found: ${target.selector}`
-          : `No element matched text "${target.text}"`,
-        'CLICK_NOT_FOUND',
-        {
-          selector: target.selector,
-          text: target.text,
-          match: target.selector ? undefined : target.match ?? 'exact',
-          caseSensitive: target.caseSensitive ?? false
+    if (waitTimeout && waitTimeout > 0) {
+      // Poll for element to appear
+      const startTime = Date.now();
+      while (true) {
+        matches = await resolveClickCandidates(context, ws, target);
+        if (matches.length > 0) break;
+        if (Date.now() - startTime >= waitTimeout) {
+          throw new ClickError(
+            target.selector
+              ? `Timeout waiting for element: ${target.selector} (${waitTimeout}ms)`
+              : `Timeout waiting for text "${target.text}" (${waitTimeout}ms)`,
+            'CLICK_TIMEOUT',
+            {
+              selector: target.selector,
+              text: target.text,
+              match: target.selector ? undefined : target.match ?? 'exact',
+              caseSensitive: target.caseSensitive ?? false,
+              timeout: waitTimeout
+            }
+          );
         }
-      );
+        await delay(100);
+      }
+    } else {
+      matches = await resolveClickCandidates(context, ws, target);
+
+      if (matches.length === 0) {
+        throw new ClickError(
+          target.selector
+            ? `Element not found: ${target.selector}`
+            : `No element matched text "${target.text}"`,
+          'CLICK_NOT_FOUND',
+          {
+            selector: target.selector,
+            text: target.text,
+            match: target.selector ? undefined : target.match ?? 'exact',
+            caseSensitive: target.caseSensitive ?? false
+          }
+        );
+      }
     }
 
     let selectedIndex = 0;
@@ -750,7 +778,47 @@ export async function click(
     const yRounded = Math.round(y);
     const roundedRect = roundRect(rect);
 
-    if (options.touch) {
+    if (options.userGesture) {
+      // Use Runtime.callFunctionOn with userGesture for activation-gated APIs
+      // (WebXR, fullscreen, etc.) that Input.dispatchMouseEvent cannot trigger
+      const resolved = await context.sendCommand(ws, 'DOM.resolveNode', { nodeId: chosen.nodeId });
+      const objectId = resolved.object?.objectId;
+
+      if (!objectId) {
+        throw new ClickError(
+          'Could not resolve element for user gesture click',
+          'CLICK_RESOLVE_FAILED',
+          { selector: target.selector, text: target.text }
+        );
+      }
+
+      const clickCount = options.double ? 2 : 1;
+      const clickResult = await context.sendCommand(ws, 'Runtime.callFunctionOn', {
+        objectId,
+        functionDeclaration: `function() { for (let i = 0; i < ${clickCount}; i++) { this.click(); } return { success: true, tagName: this.tagName, id: this.id || null }; }`,
+        userGesture: true,
+        returnByValue: true
+      });
+
+      await safeReleaseObject(context, ws, objectId);
+
+      if (clickResult.result?.value?.error) {
+        throw new ClickError(
+          clickResult.result.value.error,
+          'CLICK_USER_GESTURE_FAILED',
+          { selector: target.selector, text: target.text }
+        );
+      }
+
+      outputSuccess('Click performed with user gesture', {
+        strategy: target.selector ? 'css' : 'text',
+        selector: target.selector ?? null,
+        text: target.text ?? null,
+        userGesture: true,
+        double: options.double || false,
+        element: clickResult.result?.value
+      });
+    } else if (options.touch) {
       // Touch tap sequence
       await context.sendCommand(ws, 'Input.dispatchTouchEvent', {
         type: 'touchStart',
