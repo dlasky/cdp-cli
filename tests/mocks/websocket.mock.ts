@@ -262,6 +262,28 @@ export class MockWebSocket extends EventEmitter {
           result = {};
           break;
 
+        case 'Target.createTarget':
+          result = {
+            targetId: 'new-page-123'
+          };
+          break;
+
+        case 'Runtime.getProperties':
+          result = {
+            result: [
+              {
+                name: 'key',
+                enumerable: true,
+                value: { type: 'string', value: 'expanded-value' }
+              }
+            ]
+          };
+          break;
+
+        case 'Runtime.releaseObject':
+          result = {};
+          break;
+
         default:
           result = {};
       }

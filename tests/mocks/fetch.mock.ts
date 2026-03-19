@@ -28,6 +28,7 @@ export function createMockFetch(options?: {
   failFetch?: boolean;
   failCreate?: boolean;
   failClose?: boolean;
+  fail405?: boolean;
 }): typeof fetch {
   const pages = options?.pages || samplePages;
 
@@ -49,10 +50,21 @@ export function createMockFetch(options?: {
       return new MockFetchResponse(pages) as any;
     }
 
+    // GET /json/version - browser version info
+    if (urlString.includes('/json/version')) {
+      return new MockFetchResponse({
+        webSocketDebuggerUrl: 'ws://localhost:9222/devtools/browser/xxx'
+      }) as any;
+    }
+
     // GET /json/new - create new page
     if (urlString.includes('/json/new')) {
       if (options?.failCreate) {
         return new MockFetchResponse(null, 500, 'Failed to create page') as any;
+      }
+
+      if (options?.fail405) {
+        return new MockFetchResponse(null, 405, 'Method Not Allowed') as any;
       }
 
       const urlParam = urlString.split('?')[1];

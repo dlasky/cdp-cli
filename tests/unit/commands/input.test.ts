@@ -166,6 +166,60 @@ describe('Input Commands', () => {
     // Note: Element not found error is difficult to test with auto-responding mocks
     // The error handling is validated by the page not found test below
 
+    it('should click element with --wait option when element is found', async () => {
+      const capture = captureConsoleOutput();
+      const context = new CDPContext();
+
+      await input.click(context, 'button#submit', { page: 'page1', wait: 5000 });
+
+      const logs = capture.getLogs();
+      capture.restore();
+
+      expect(logs).toHaveLength(1);
+      const result = JSON.parse(logs[0]);
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Click performed');
+      expect(result.data.selector).toBe('button#submit');
+    });
+
+    it('should use Runtime.callFunctionOn with --user-gesture and output only once', async () => {
+      const capture = captureConsoleOutput();
+      const context = new CDPContext();
+
+      const originalConnect = context.connect.bind(context);
+      const cdpMethods: string[] = [];
+
+      context.connect = async (page) => {
+        const ws = await originalConnect(page) as MockWebSocket;
+
+        const originalSend = ws.send.bind(ws);
+        ws.send = (data: string) => {
+          const msg = JSON.parse(data);
+          cdpMethods.push(msg.method);
+          originalSend(data);
+        };
+
+        return ws;
+      };
+
+      await input.click(context, 'button#submit', { page: 'page1', userGesture: true });
+
+      const logs = capture.getLogs();
+      capture.restore();
+
+      // Verify Runtime.callFunctionOn was used instead of Input.dispatchMouseEvent
+      expect(cdpMethods).toContain('Runtime.callFunctionOn');
+      expect(cdpMethods.filter(m => m === 'Input.dispatchMouseEvent')).toHaveLength(0);
+
+      // Verify only ONE success output (bug fix)
+      expect(logs).toHaveLength(1);
+      const result = JSON.parse(logs[0]);
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Click performed with user gesture');
+      expect(result.data.userGesture).toBe(true);
+    });
+
     it('should handle page not found error', async () => {
       const capture = captureConsoleOutput();
       const exitMock = mockProcessExit();

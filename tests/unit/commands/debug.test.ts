@@ -115,6 +115,46 @@ describe('Debug Commands', () => {
       exitMock.restore();
     });
 
+    it('should expand object args when --inspect is used', async () => {
+      const capture = captureConsoleOutput();
+      const context = new CDPContext();
+
+      const originalConnect = context.connect.bind(context);
+      context.connect = async (page) => {
+        const ws = await originalConnect(page) as MockWebSocket;
+
+        // Simulate a console message with an arg that has an objectId
+        setTimeout(() => {
+          ws.simulateMessage({
+            method: 'Runtime.consoleAPICalled',
+            params: {
+              type: 'log',
+              args: [{
+                type: 'object',
+                objectId: 'obj-expand-1',
+                description: 'Object'
+              }],
+              timestamp: 1698234567890
+            }
+          });
+        }, 10);
+
+        return ws;
+      };
+
+      await debug.listConsole(context, { page: 'page1', duration: 0.2, inspect: true });
+
+      const logs = capture.getLogs();
+      capture.restore();
+
+      expect(logs).toHaveLength(1);
+      const msg = JSON.parse(logs[0]);
+      expect(msg.type).toBe('log');
+      // The mock returns Runtime.getProperties with {key: 'expanded-value'}
+      // expandValue builds an object from enumerable properties
+      expect(msg.text).toContain('expanded-value');
+    });
+
     it('should close WebSocket via try-finally', async () => {
       const capture = captureConsoleOutput();
       const context = new CDPContext();
