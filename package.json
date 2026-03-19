@@ -1,6 +1,6 @@
 {
-  "name": "@auphansoftware/cdp-cli",
-  "version": "1.4.0",
+  "name": "@dlasky/cdp-cli",
+  "version": "1.0.0",
   "description": "CLI for Chrome DevTools Protocol - optimized for LLM agents with NDJSON output",
   "type": "module",
   "bin": {
@@ -29,10 +29,19 @@
     "cli",
     "automation",
     "llm",
-    "ndjson"
+    "ndjson",
+    "helium"
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dlasky/cdp-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dlasky/cdp-cli/issues"
+  },
+  "homepage": "https://github.com/dlasky/cdp-cli#readme",
   "files": [
     "build/**/*",
     "README.md"

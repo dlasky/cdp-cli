@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:formulae.brew.sh)",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(mdfind:*)",
+      "Bash(npx vitest:*)",
+      "Bash(node:*)",
+      "Bash(git remote add:*)",
+      "Bash(git checkout:*)",
+      "Bash(git stash:*)",
+      "Bash(npm test:*)"
+    ]
+  }
+}
