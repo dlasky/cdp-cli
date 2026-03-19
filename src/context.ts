@@ -629,6 +629,15 @@ export class CDPContext {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(browserWsUrl);
       const id = this.messageId++;
+      let settled = false;
+
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          ws.close();
+          reject(new Error('Target.createTarget timed out'));
+        }
+      }, 10000);
 
       ws.on('open', () => {
         ws.send(JSON.stringify({
@@ -642,41 +651,43 @@ export class CDPContext {
         const message: CDPMessage = JSON.parse(data.toString());
 
         if (message.id === id) {
+          clearTimeout(timeout);
           ws.close();
 
           if (message.error) {
-            reject(new Error(`Target.createTarget failed: ${message.error.message}`));
+            if (!settled) { settled = true; reject(new Error(`Target.createTarget failed: ${message.error.message}`)); }
             return;
           }
 
           const targetId = message.result?.targetId;
           if (!targetId) {
-            reject(new Error('Target.createTarget did not return targetId'));
+            if (!settled) { settled = true; reject(new Error('Target.createTarget did not return targetId')); }
             return;
           }
 
           try {
             const pages = await this.getPages();
             const page = pages.find(p => p.id === targetId);
+            if (settled) return;
+            settled = true;
             if (page) {
               resolve(page);
             } else {
               reject(new Error(`Created page ${targetId} not found in page list`));
             }
           } catch (error) {
-            reject(error);
+            if (!settled) { settled = true; reject(error); }
           }
         }
       });
 
       ws.on('error', (error) => {
-        reject(new Error(`WebSocket error: ${(error as Error).message}`));
+        clearTimeout(timeout);
+        if (!settled) {
+          settled = true;
+          reject(new Error(`WebSocket error: ${(error as Error).message}`));
+        }
       });
-
-      setTimeout(() => {
-        ws.close();
-        reject(new Error('Target.createTarget timed out'));
-      }, 10000);
     });
   }
 

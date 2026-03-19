@@ -89,19 +89,34 @@ export async function listConsole(
     ws = await context.connect(page);
 
     const wsRef = ws;
-    context.setupConsoleCollection(ws, async (message: ConsoleMessage) => {
+    context.setupConsoleCollection(ws, (message: ConsoleMessage) => {
       if (options.type && message.type !== options.type) {
         return;
       }
 
-      // In inspect mode, recursively expand objects/arrays in args
       if (options.inspect && message.args && message.args.length > 0) {
-        const expandedArgs = await Promise.all(
-          message.args.map(async (arg: any) => {
-            return await expandValue(context, wsRef, arg, 0, 3);
-          })
-        );
-        message.text = expandedArgs.map(a => JSON.stringify(a)).join(' ');
+        // Wrap async expansion to avoid unhandled rejections
+        void (async () => {
+          try {
+            const expandedArgs = await Promise.all(
+              message.args!.map(async (arg: any) => {
+                return await expandValue(context, wsRef, arg, 0, 3);
+              })
+            );
+            message.text = expandedArgs.map(a => JSON.stringify(a)).join(' ');
+          } catch {
+            // Fall through with original text on expansion failure
+          }
+          outputLine({
+            type: message.type,
+            timestamp: message.timestamp,
+            text: message.text,
+            source: message.source,
+            ...(message.line !== undefined && { line: message.line }),
+            ...(message.url && { url: message.url })
+          });
+        })();
+        return;
       }
 
       outputLine({

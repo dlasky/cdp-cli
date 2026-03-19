@@ -793,14 +793,25 @@ export async function click(
       }
 
       const clickCount = options.double ? 2 : 1;
-      const clickResult = await context.sendCommand(ws, 'Runtime.callFunctionOn', {
-        objectId,
-        functionDeclaration: `function() { for (let i = 0; i < ${clickCount}; i++) { this.click(); } return { success: true, tagName: this.tagName, id: this.id || null }; }`,
-        userGesture: true,
-        returnByValue: true
-      });
+      let clickResult;
+      try {
+        clickResult = await context.sendCommand(ws, 'Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration: `function() { for (let i = 0; i < ${clickCount}; i++) { this.click(); } return { success: true, tagName: this.tagName, id: this.id || null }; }`,
+          userGesture: true,
+          returnByValue: true
+        });
+      } finally {
+        await safeReleaseObject(context, ws, objectId);
+      }
 
-      await safeReleaseObject(context, ws, objectId);
+      if (clickResult.exceptionDetails) {
+        throw new ClickError(
+          clickResult.exceptionDetails.text || 'User gesture click failed due to a runtime exception',
+          'CLICK_USER_GESTURE_FAILED',
+          { selector: target.selector, text: target.text }
+        );
+      }
 
       if (clickResult.result?.value?.error) {
         throw new ClickError(
@@ -888,22 +899,24 @@ export async function click(
       }
     }
 
-    outputSuccess('Click performed', {
-      strategy: target.selector ? 'css' : 'text',
-      selector: target.selector ?? null,
-      text: target.text ?? null,
-      match: target.selector ? undefined : target.match ?? 'exact',
-      caseSensitive: target.caseSensitive ?? false,
-      within: target.within ?? null,
-      index: selectedIndex + 1,
-      totalMatches: matches.length,
-      x: xRounded,
-      y: yRounded,
-      rect: roundedRect,
-      double: options.double || false,
-      longpress: longpressSeconds,
-      touch: options.touch || false
-    });
+    if (!options.userGesture) {
+      outputSuccess('Click performed', {
+        strategy: target.selector ? 'css' : 'text',
+        selector: target.selector ?? null,
+        text: target.text ?? null,
+        match: target.selector ? undefined : target.match ?? 'exact',
+        caseSensitive: target.caseSensitive ?? false,
+        within: target.within ?? null,
+        index: selectedIndex + 1,
+        totalMatches: matches.length,
+        x: xRounded,
+        y: yRounded,
+        rect: roundedRect,
+        double: options.double || false,
+        longpress: longpressSeconds,
+        touch: options.touch || false
+      });
+    }
   } catch (error) {
     if (error instanceof ClickError) {
       outputError(error.message, error.code, error.details);

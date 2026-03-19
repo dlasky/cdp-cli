@@ -88,6 +88,22 @@ export async function launchBrowser(options: { port: number; browser: BrowserTyp
       stdio: 'ignore'
     });
 
+    // Wait for spawn confirmation before reporting success
+    await new Promise<void>((resolve, reject) => {
+      const onSpawn = () => {
+        browserProcess.removeListener('error', onError);
+        resolve();
+      };
+
+      const onError = (err: Error) => {
+        browserProcess.removeListener('spawn', onSpawn);
+        reject(err);
+      };
+
+      browserProcess.once('spawn', onSpawn);
+      browserProcess.once('error', onError);
+    });
+
     browserProcess.unref();
 
     outputSuccess(`${config.name} launched`, {
