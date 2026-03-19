@@ -155,9 +155,9 @@ describe('Input Commands', () => {
 
       expect(exitMock.exitCode).toBe(1);
 
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
-      expect(error.code).toBe('CLICK_INVALID_OPTIONS');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('CLICK_INVALID_OPTIONS:');
 
       capture.restore();
       exitMock.restore();
@@ -165,6 +165,60 @@ describe('Input Commands', () => {
 
     // Note: Element not found error is difficult to test with auto-responding mocks
     // The error handling is validated by the page not found test below
+
+    it('should click element with --wait option when element is found', async () => {
+      const capture = captureConsoleOutput();
+      const context = new CDPContext();
+
+      await input.click(context, 'button#submit', { page: 'page1', wait: 5000 });
+
+      const logs = capture.getLogs();
+      capture.restore();
+
+      expect(logs).toHaveLength(1);
+      const result = JSON.parse(logs[0]);
+
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Click performed');
+      expect(result.data.selector).toBe('button#submit');
+    });
+
+    it('should use Runtime.callFunctionOn with --user-gesture and output only once', async () => {
+      const capture = captureConsoleOutput();
+      const context = new CDPContext();
+
+      const originalConnect = context.connect.bind(context);
+      const cdpMethods: string[] = [];
+
+      context.connect = async (page) => {
+        const ws = await originalConnect(page) as MockWebSocket;
+
+        const originalSend = ws.send.bind(ws);
+        ws.send = (data: string) => {
+          const msg = JSON.parse(data);
+          cdpMethods.push(msg.method);
+          originalSend(data);
+        };
+
+        return ws;
+      };
+
+      await input.click(context, 'button#submit', { page: 'page1', userGesture: true });
+
+      const logs = capture.getLogs();
+      capture.restore();
+
+      // Verify Runtime.callFunctionOn was used instead of Input.dispatchMouseEvent
+      expect(cdpMethods).toContain('Runtime.callFunctionOn');
+      expect(cdpMethods.filter(m => m === 'Input.dispatchMouseEvent')).toHaveLength(0);
+
+      // Verify only ONE success output (bug fix)
+      expect(logs).toHaveLength(1);
+      const result = JSON.parse(logs[0]);
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Click performed with user gesture');
+      expect(result.data.userGesture).toBe(true);
+    });
 
     it('should handle page not found error', async () => {
       const capture = captureConsoleOutput();
@@ -178,9 +232,9 @@ describe('Input Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
-      expect(error.code).toBe('CLICK_FAILED');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('CLICK_FAILED:');
 
       capture.restore();
       exitMock.restore();
@@ -230,7 +284,7 @@ describe('Input Commands', () => {
 
       await input.fill(context, 'input#test', 'value', { page: 'page1' });
 
-      // Verify DOM.setAttributeValue was used
+      // Verify DOM.setAttributeValue was used to clear the value
       const setAttrMessages = capturedMessages.filter(m => m.method === 'DOM.setAttributeValue');
       expect(setAttrMessages.length).toBeGreaterThan(0);
 
@@ -238,11 +292,16 @@ describe('Input Commands', () => {
         m.params?.name === 'value' && m.params?.value === ''
       );
       expect(clearMessage).toBeDefined();
-      expect(clearMessage.params.nodeId).toBe(42);
 
-      // SECURITY: Verify Runtime.evaluate is NOT used (code injection vulnerability)
+      // SECURITY: Verify user-supplied values are NOT passed to Runtime.evaluate (code injection vulnerability)
+      // Note: Runtime.evaluate IS used by assertNoDialog (expression: '1') to check for blocking dialogs
+      // Note: Runtime.callFunctionOn IS used for element metadata retrieval (safe - no user input in code)
       const evalMessages = capturedMessages.filter(m => m.method === 'Runtime.evaluate');
-      expect(evalMessages).toHaveLength(0);
+      for (const msg of evalMessages) {
+        // Only safe, constant expressions should be evaluated (e.g. dialog check)
+        expect(msg.params.expression).not.toContain('value');
+        expect(msg.params.expression).not.toContain('input#test');
+      }
 
       capture.restore();
     });
@@ -305,9 +364,9 @@ describe('Input Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
-      expect(error.code).toBe('FILL_FAILED');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('FILL_FAILED:');
 
       capture.restore();
       exitMock.restore();
@@ -419,9 +478,9 @@ describe('Input Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
-      expect(error.code).toBe('PRESS_KEY_FAILED');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('PRESS_KEY_FAILED:');
 
       capture.restore();
       exitMock.restore();

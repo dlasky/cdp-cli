@@ -107,12 +107,52 @@ describe('Debug Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
-      expect(error.code).toBe('LIST_CONSOLE_FAILED');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('LIST_CONSOLE_FAILED:');
 
       capture.restore();
       exitMock.restore();
+    });
+
+    it('should expand object args when --inspect is used', async () => {
+      const capture = captureConsoleOutput();
+      const context = new CDPContext();
+
+      const originalConnect = context.connect.bind(context);
+      context.connect = async (page) => {
+        const ws = await originalConnect(page) as MockWebSocket;
+
+        // Simulate a console message with an arg that has an objectId
+        setTimeout(() => {
+          ws.simulateMessage({
+            method: 'Runtime.consoleAPICalled',
+            params: {
+              type: 'log',
+              args: [{
+                type: 'object',
+                objectId: 'obj-expand-1',
+                description: 'Object'
+              }],
+              timestamp: 1698234567890
+            }
+          });
+        }, 10);
+
+        return ws;
+      };
+
+      await debug.listConsole(context, { page: 'page1', duration: 0.2, inspect: true });
+
+      const logs = capture.getLogs();
+      capture.restore();
+
+      expect(logs).toHaveLength(1);
+      const msg = JSON.parse(logs[0]);
+      expect(msg.type).toBe('log');
+      // The mock returns Runtime.getProperties with {key: 'expanded-value'}
+      // expandValue builds an object from enumerable properties
+      expect(msg.text).toContain('expanded-value');
     });
 
     it('should close WebSocket via try-finally', async () => {
@@ -153,22 +193,28 @@ describe('Debug Commands', () => {
       expect(logs[0]).toBe('test result');
     });
 
-    it('should capture DOM snapshot', async () => {
+    it('should error on removed dom format', async () => {
       const capture = captureConsoleOutput();
+      const exitMock = mockProcessExit();
       const context = new CDPContext();
 
-      await debug.snapshot(context, { page: 'page1', format: 'dom' });
+      try {
+        await debug.snapshot(context, { page: 'page1', format: 'dom' });
+      } catch (e) {
+        // Expected process.exit
+      }
 
-      const logs = capture.getLogs();
+      expect(exitMock.exitCode).toBe(1);
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('SNAPSHOT_FAILED:');
+      expect(errors[0]).toContain('Unknown snapshot format: dom');
+
       capture.restore();
-
-      expect(logs).toHaveLength(1);
-      const domSnapshot = JSON.parse(logs[0]);
-      expect(domSnapshot.root).toBeDefined();
-      expect(domSnapshot.root.nodeId).toBe(1);
+      exitMock.restore();
     });
 
-    it('should capture accessibility tree snapshot', async () => {
+    it('should capture actionable elements snapshot (ax format)', async () => {
       const capture = captureConsoleOutput();
       const context = new CDPContext();
 
@@ -178,12 +224,16 @@ describe('Debug Commands', () => {
       capture.restore();
 
       expect(logs).toHaveLength(1);
-      const axSnapshot = JSON.parse(logs[0]);
-      expect(axSnapshot.nodes).toBeDefined();
-      expect(Array.isArray(axSnapshot.nodes)).toBe(true);
+      // ax format outputs plain text lines with actionable elements
+      const output = logs[0];
+      expect(output).toContain('[button]');
+      expect(output).toContain('"Submit"');
+      expect(output).toContain('#submit');
+      expect(output).toContain('[input:text]');
+      expect(output).toContain('"Email"');
     });
 
-    it('should use text format by default', async () => {
+    it('should use ax format by default', async () => {
       const capture = captureConsoleOutput();
       const context = new CDPContext();
 
@@ -192,8 +242,10 @@ describe('Debug Commands', () => {
       const logs = capture.getLogs();
       capture.restore();
 
-      // Default format is text, which outputs raw
-      expect(logs[0]).toBe('test result');
+      // Default format is ax, which outputs actionable elements as plain text
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toContain('[button]');
+      expect(logs[0]).toContain('[input:text]');
     });
 
     it('should error on invalid format', async () => {
@@ -208,10 +260,10 @@ describe('Debug Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
-      expect(error.code).toBe('SNAPSHOT_FAILED');
-      expect(error.message).toContain('Unknown snapshot format');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('SNAPSHOT_FAILED:');
+      expect(errors[0]).toContain('Unknown snapshot format');
 
       capture.restore();
       exitMock.restore();
@@ -229,8 +281,9 @@ describe('Debug Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.code).toBe('SNAPSHOT_FAILED');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('SNAPSHOT_FAILED:');
 
       capture.restore();
       exitMock.restore();
@@ -271,9 +324,10 @@ describe('Debug Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.code).toBe('EVAL_FAILED');
-      expect(error.details.expression).toBe('2 + 2');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('EVAL_FAILED:');
+      expect(errors[0]).toContain('expression: 2 + 2');
 
       capture.restore();
       exitMock.restore();
@@ -323,7 +377,8 @@ describe('Debug Commands', () => {
       const result = JSON.parse(logs[0]);
       expect(result.success).toBe(true);
       expect(result.format).toBe('jpeg'); // default
-      expect(result.data).toBe('base64encodeddata==');
+      // Data goes through Buffer round-trip: Buffer.from(base64, 'base64').toString('base64')
+      expect(result.data).toBe(Buffer.from('base64encodeddata==', 'base64').toString('base64'));
     });
 
     it('should validate format (BUG FIX TEST)', async () => {
@@ -338,11 +393,11 @@ describe('Debug Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
-      expect(error.code).toBe('SCREENSHOT_FAILED');
-      expect(error.message).toContain('Invalid format: gif');
-      expect(error.message).toContain('jpeg, png, webp');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('SCREENSHOT_FAILED:');
+      expect(errors[0]).toContain('Invalid format: gif');
+      expect(errors[0]).toContain('jpeg, png, webp');
 
       capture.restore();
       exitMock.restore();
@@ -485,14 +540,16 @@ describe('Debug Commands', () => {
       const lastWriteCall = writeCalls[writeCalls.length - 1];
       expect(lastWriteCall[0]).toBe('/tmp/scaled.jpg');
 
-      const evalCommand = sentCommands.find(msg => msg.method === 'Runtime.evaluate' && msg.params?.expression?.includes('innerWidth'));
-      expect(evalCommand).toBeDefined();
-
+      // Screenshot is captured at full resolution (no clip.scale), scaling is done via sharp
       const screenshotCommand = sentCommands.find(msg => msg.method === 'Page.captureScreenshot');
       expect(screenshotCommand).toBeDefined();
-      expect(screenshotCommand.params.clip.scale).toBe(0.5);
-      expect(screenshotCommand.params.clip.width).toBeGreaterThan(0);
-      expect(screenshotCommand.params.clip.height).toBeGreaterThan(0);
+      expect(screenshotCommand.params.clip).toBeUndefined();
+
+      // Verify success output
+      const logs = capture.getLogs();
+      const result = JSON.parse(logs[0]);
+      expect(result.success).toBe(true);
+      expect(result.data.file).toBe('/tmp/scaled.jpg');
 
       capture.restore();
     });
@@ -509,10 +566,10 @@ describe('Debug Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.error).toBe(true);
-      expect(error.code).toBe('SCREENSHOT_FAILED');
-      expect(error.message).toContain('Invalid scale');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('SCREENSHOT_FAILED:');
+      expect(errors[0]).toContain('Invalid scale');
 
       capture.restore();
       exitMock.restore();
@@ -530,8 +587,9 @@ describe('Debug Commands', () => {
       }
 
       expect(exitMock.exitCode).toBe(1);
-      const error = JSON.parse(capture.getLogs()[0]);
-      expect(error.code).toBe('SCREENSHOT_FAILED');
+      const errors = capture.getErrors();
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain('SCREENSHOT_FAILED:');
 
       capture.restore();
       exitMock.restore();

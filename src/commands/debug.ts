@@ -10,11 +10,73 @@ import sharp from 'sharp';
 import { createExecSession, createExecSessionByPageRef } from '../daemon/exec.js';
 
 /**
+ * Recursively expand an object/array via CDP Runtime.getProperties
+ */
+async function expandValue(
+  context: CDPContext,
+  ws: any,
+  arg: any,
+  depth: number = 0,
+  maxDepth: number = 3
+): Promise<any> {
+  // Primitive values - return directly
+  if (arg.value !== undefined) return arg.value;
+
+  // Don't recurse too deep
+  if (depth >= maxDepth) {
+    return arg.description || 'Object';
+  }
+
+  // Objects/arrays with objectId - fetch and expand properties
+  if (arg.objectId) {
+    try {
+      const props = await context.sendCommand(ws, 'Runtime.getProperties', {
+        objectId: arg.objectId,
+        ownProperties: true
+      });
+
+      if (props.result && props.result.length > 0) {
+        const isArray = arg.subtype === 'array' || arg.className === 'Array';
+        const enumerable = props.result.filter((p: any) => p.enumerable !== false);
+
+        if (isArray) {
+          const arrayEntries = enumerable
+            .filter((p: any) => /^\d+$/.test(p.name))
+            .sort((a: any, b: any) => parseInt(a.name) - parseInt(b.name));
+
+          return await Promise.all(
+            arrayEntries.map(async (p: any) => {
+              if (p.value) {
+                return await expandValue(context, ws, p.value, depth + 1, maxDepth);
+              }
+              return null;
+            })
+          );
+        } else {
+          const obj: any = {};
+          for (const p of enumerable) {
+            if (p.value) {
+              obj[p.name] = await expandValue(context, ws, p.value, depth + 1, maxDepth);
+            }
+          }
+          return obj;
+        }
+      }
+    } catch {
+      return arg.description || 'Object';
+    }
+  }
+
+  // Fallback
+  return arg.description || null;
+}
+
+/**
  * List console messages
  */
 export async function listConsole(
   context: CDPContext,
-  options: { type?: string; page: string; duration?: number }
+  options: { type?: string; page: string; duration?: number; inspect?: boolean }
 ): Promise<void> {
   let ws;
   const duration = options.duration ?? 0;
@@ -26,8 +88,34 @@ export async function listConsole(
     // Connect and enable Runtime domain
     ws = await context.connect(page);
 
+    const wsRef = ws;
     context.setupConsoleCollection(ws, (message: ConsoleMessage) => {
       if (options.type && message.type !== options.type) {
+        return;
+      }
+
+      if (options.inspect && message.args && message.args.length > 0) {
+        // Wrap async expansion to avoid unhandled rejections
+        void (async () => {
+          try {
+            const expandedArgs = await Promise.all(
+              message.args!.map(async (arg: any) => {
+                return await expandValue(context, wsRef, arg, 0, 3);
+              })
+            );
+            message.text = expandedArgs.map(a => JSON.stringify(a)).join(' ');
+          } catch {
+            // Fall through with original text on expansion failure
+          }
+          outputLine({
+            type: message.type,
+            timestamp: message.timestamp,
+            text: message.text,
+            source: message.source,
+            ...(message.line !== undefined && { line: message.line }),
+            ...(message.url && { url: message.url })
+          });
+        })();
         return;
       }
 

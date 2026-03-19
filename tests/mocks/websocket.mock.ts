@@ -200,6 +200,28 @@ export class MockWebSocket extends EventEmitter {
                 value: JSON.stringify({ width: 1280, height: 720 })
               }
             };
+          } else if (message.params?.expression?.includes('clickableSelector')) {
+            // Actionable elements snapshot (ax format)
+            result = {
+              result: {
+                type: 'object',
+                value: [
+                  {
+                    role: 'button',
+                    selector: '#submit',
+                    label: 'Submit',
+                    action: 'click'
+                  },
+                  {
+                    role: 'input:text',
+                    selector: 'input[name="email"]',
+                    label: 'Email',
+                    name: 'email',
+                    action: 'fill'
+                  }
+                ]
+              }
+            };
           } else {
             result = {
               result: {
@@ -237,6 +259,28 @@ export class MockWebSocket extends EventEmitter {
           break;
 
         case 'Page.handleJavaScriptDialog':
+          result = {};
+          break;
+
+        case 'Target.createTarget':
+          result = {
+            targetId: 'new-page-123'
+          };
+          break;
+
+        case 'Runtime.getProperties':
+          result = {
+            result: [
+              {
+                name: 'key',
+                enumerable: true,
+                value: { type: 'string', value: 'expanded-value' }
+              }
+            ]
+          };
+          break;
+
+        case 'Runtime.releaseObject':
           result = {};
           break;
 

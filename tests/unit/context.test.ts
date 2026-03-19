@@ -327,6 +327,29 @@ describe('CDPContext', () => {
       expect(page.url).toBe('https://example.com');
     });
 
+    it('should fall back to Target.createTarget when /json/new returns 405', async () => {
+      // Install mock fetch that returns 405 for /json/new, and includes
+      // the target page in the page list (needed by createPageViaTarget lookup)
+      installMockFetch({
+        fail405: true,
+        pages: [
+          ...samplePages,
+          {
+            id: 'new-page-123',
+            title: 'New Tab',
+            url: 'about:blank',
+            type: 'page',
+            webSocketDebuggerUrl: 'ws://localhost:9222/devtools/page/new-page-123'
+          }
+        ]
+      });
+
+      const context = new CDPContext();
+      const page = await context.createPage();
+
+      expect(page.id).toBe('new-page-123');
+    });
+
     it('should throw error on failure', async () => {
       installMockFetch({ failCreate: true });
 

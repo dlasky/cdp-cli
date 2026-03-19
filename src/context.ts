@@ -606,6 +606,92 @@ export class CDPContext {
   }
 
   /**
+   * Get browser WebSocket URL for Target domain commands
+   */
+  async getBrowserWebSocketUrl(): Promise<string> {
+    const response = await (globalThis.fetch ?? undiciFetch)(`${this.cdpUrl}/json/version`);
+    if (!response.ok) {
+      throw new Error(`Failed to get browser info: ${response.statusText}`);
+    }
+    const version = await response.json() as { webSocketDebuggerUrl?: string };
+    if (!version.webSocketDebuggerUrl) {
+      throw new Error('Browser WebSocket URL not available');
+    }
+    return version.webSocketDebuggerUrl;
+  }
+
+  /**
+   * Create a new page using Target.createTarget (fallback method)
+   */
+  async createPageViaTarget(url?: string): Promise<Page> {
+    const browserWsUrl = await this.getBrowserWebSocketUrl();
+
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(browserWsUrl);
+      const id = this.messageId++;
+      let settled = false;
+
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          ws.close();
+          reject(new Error('Target.createTarget timed out'));
+        }
+      }, 10000);
+
+      ws.on('open', () => {
+        ws.send(JSON.stringify({
+          id,
+          method: 'Target.createTarget',
+          params: { url: url || 'about:blank' }
+        }));
+      });
+
+      ws.on('message', async (data: Buffer) => {
+        const message: CDPMessage = JSON.parse(data.toString());
+
+        if (message.id === id) {
+          clearTimeout(timeout);
+          ws.close();
+
+          if (message.error) {
+            if (!settled) { settled = true; reject(new Error(`Target.createTarget failed: ${message.error.message}`)); }
+            return;
+          }
+
+          const targetId = message.result?.targetId;
+          if (!targetId) {
+            if (!settled) { settled = true; reject(new Error('Target.createTarget did not return targetId')); }
+            return;
+          }
+
+          try {
+            const pages = await this.getPages();
+            const page = pages.find(p => p.id === targetId);
+            if (settled) return;
+            settled = true;
+            if (page) {
+              resolve(page);
+            } else {
+              reject(new Error(`Created page ${targetId} not found in page list`));
+            }
+          } catch (error) {
+            if (!settled) { settled = true; reject(error); }
+          }
+        }
+      });
+
+      ws.on('error', (error) => {
+        clearTimeout(timeout);
+        if (!settled) {
+          settled = true;
+          reject(new Error(`WebSocket error: ${(error as Error).message}`));
+        }
+      });
+    });
+  }
+
+  /**
    * Create a new page
    */
   async createPage(url?: string): Promise<Page> {
@@ -615,11 +701,18 @@ export class CDPContext {
       : `${this.cdpUrl}/json/new`;
 
     const response = await fetch(endpoint, { method: 'PUT' });
-    if (!response.ok) {
-      throw new Error(`Failed to create page: ${response.statusText}`);
+
+    // If HTTP endpoint works, use it
+    if (response.ok) {
+      return await response.json() as Page;
     }
 
-    return await response.json() as Page;
+    // If Method Not Allowed, try Target.createTarget fallback
+    if (response.status === 405) {
+      return await this.createPageViaTarget(url);
+    }
+
+    throw new Error(`Failed to create page: ${response.statusText}`);
   }
 
 }
