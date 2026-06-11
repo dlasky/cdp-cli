@@ -18,7 +18,7 @@ npm install
 npm run build
 
 # Global installation
-npm install -g @auphansoftware/cdp-cli
+npm install -g @dlasky/cdp-cli
 
 # Verify the CLI is available, regardless of platform shims (.cmd/.ps1)
 cdp-cli --help
